@@ -1,0 +1,42 @@
+# Swift and Xcode build output
+.build/
+.swiftpm/
+DerivedData/
+build/
+build-command-line/
+*.app/
+*.dSYM/
+*.xcarchive/
+*.xcresult/
+
+# Per-user Xcode state (keep shared schemes)
+*.xcuserstate
+xcuserdata/
+
+# Local distribution packages and logs
+*.zip
+*.dmg
+*.pkg
+*.log
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.keychain
+*.keychain-db
+
+# macOS metadata and editor temporary files
+.DS_Store
+.AppleDouble/
+._*
+*.swp
+*.swo
+*~
