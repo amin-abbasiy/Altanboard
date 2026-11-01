@@ -1,5 +1,7 @@
 # Altanboard
 
+[![Swift CI](https://github.com/amin-abbasiy/Altanboard/actions/workflows/ci.yml/badge.svg)](https://github.com/amin-abbasiy/Altanboard/actions/workflows/ci.yml)
+
 A minimal native whiteboard for Apple Silicon Macs. Black and red pencils, read-only mode, and JSON save/load. No dependencies, accounts, or network access.
 
 ## Build
