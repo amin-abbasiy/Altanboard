@@ -10,7 +10,6 @@ public enum BoardFileError: Error, LocalizedError, Equatable, Sendable {
     case duplicateStrokeID
     case tooManyStrokes
     case tooManyPoints
-    case readOnly
 
     public var errorDescription: String? {
         switch self {
@@ -32,8 +31,6 @@ public enum BoardFileError: Error, LocalizedError, Equatable, Sendable {
             return "The drawing contains too many strokes."
         case .tooManyPoints:
             return "The drawing contains too many points."
-        case .readOnly:
-            return "Switch to Edit mode to change the drawing."
         }
     }
 }

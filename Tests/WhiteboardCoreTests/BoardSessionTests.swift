@@ -3,9 +3,8 @@ import XCTest
 import WhiteboardCore
 
 final class BoardSessionTests: XCTestCase {
-    func testStartsEmptyInEditModeWithBlackPencil() {
+    func testStartsEmptyWithBlackPencil() {
         let session = BoardSession()
-        XCTAssertEqual(session.mode, .edit)
         XCTAssertEqual(session.selectedColor, .black)
         XCTAssertTrue(session.document.strokes.isEmpty)
     }
@@ -28,29 +27,25 @@ final class BoardSessionTests: XCTestCase {
         XCTAssertEqual(session, original)
     }
 
-    func testViewModePreventsDrawingClearingAndSaveAndClear() throws {
+    func testEditingActionsDoNotRequireAModeSwitch() throws {
         try withTemporaryDirectory { directory in
             var session = BoardSession()
-            try session.replaceDocument(sampleDocument())
-            session.mode = .view
-            let original = session
-            let url = directory.appendingPathComponent("read-only.json")
-
-            assertBoardError(.readOnly) { try session.append(sampleDocument().strokes[0]) }
-            assertBoardError(.readOnly) { try session.clear() }
-            assertBoardError(.readOnly) { try session.saveAndClear(to: url) }
-            XCTAssertEqual(session, original)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+            let url = directory.appendingPathComponent("drawing.json")
+            try session.append(sampleDocument().strokes[0])
+            try session.saveAndClear(to: url)
+            XCTAssertTrue(session.document.strokes.isEmpty)
+            XCTAssertEqual(try BoardFileStore.load(from: url).strokes.count, 1)
+            try session.append(sampleDocument().strokes[0])
+            try session.clear()
+            XCTAssertTrue(session.document.strokes.isEmpty)
         }
     }
 
-    func testLoadingInViewModePreservesModeAndSelectedColor() throws {
+    func testLoadingPreservesSelectedColor() throws {
         var session = BoardSession()
-        session.mode = .view
         session.selectedColor = .red
         try session.replaceDocument(sampleDocument())
         XCTAssertEqual(session.document, sampleDocument())
-        XCTAssertEqual(session.mode, .view)
         XCTAssertEqual(session.selectedColor, .red)
     }
 
@@ -78,7 +73,6 @@ final class BoardSessionTests: XCTestCase {
             XCTAssertTrue(session.document.strokes.isEmpty)
             XCTAssertEqual(session.document.canvas, beforeSave.canvas)
             XCTAssertEqual(session.selectedColor, .red)
-            XCTAssertEqual(session.mode, .edit)
         }
     }
 

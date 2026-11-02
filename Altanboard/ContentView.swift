@@ -16,18 +16,16 @@ struct ContentView: View {
 
                 Spacer(minLength: 16)
 
-                Picker("Mode", selection: Binding(
-                    get: { store.mode },
-                    set: { store.setMode($0) }
-                )) {
-                    Text("View").tag(BoardMode.view)
-                    Text("Edit").tag(BoardMode.edit)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                Label(
+                    store.isPainting ? "Paint mode" : "Cursor mode",
+                    systemImage: store.isPainting ? "pencil.tip" : "cursorarrow"
+                )
+                .font(.callout.weight(.medium))
                 .frame(width: 150)
-                .disabled(store.isBusy)
+                .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Whiteboard mode")
+                .accessibilityValue(store.isPainting ? "Paint mode" : "Cursor mode")
+                .help("Hold ⌘ Command and move the pointer to draw. Release Command to use the cursor.")
 
                 Spacer(minLength: 16)
 

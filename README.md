@@ -2,7 +2,7 @@
 
 [![Swift CI](https://github.com/amin-abbasiy/Altanboard/actions/workflows/ci.yml/badge.svg)](https://github.com/amin-abbasiy/Altanboard/actions/workflows/ci.yml)
 
-A minimal native whiteboard for Apple Silicon Macs. Black and red pencils, read-only mode, and JSON save/load. No dependencies, accounts, or network access.
+A minimal native whiteboard for Apple Silicon Macs. Black and red pencils, Command-held drawing, and JSON save/load. No dependencies, accounts, or network access.
 
 ## Build
 
@@ -21,11 +21,15 @@ Builds are locally signed; no developer account needed. Not notarized for distri
 
 ## Use
 
-- **Edit:** choose black or red, then press and drag to draw.
-- **View:** read-only.
+- **Draw:** hold **⌘ Command** and move the pointer—no clicking or trackpad pressure needed. Release Command to stop.
+- **Cursor:** moving, clicking, or dragging without Command does not draw.
+- **Mode indicator:** automatically shows **Cursor mode** or **Paint mode**; it is not a toggle.
+- **Colors:** choose black or red in either mode.
 - **Save & Clear:** save as JSON, then clear only if saving succeeds.
-- **Load:** replace the board with saved JSON. Try `Examples/Drawing.json`.
+- **Load:** replace the board with saved JSON. Invalid files leave the current drawing unchanged. Try `Examples/Drawing.json`.
 - **Clear:** erase everything.
+
+Each Command hold starts a separate stroke. Leaving the canvas or switching apps ends the current stroke, preventing connecting lines across gaps. Resizing preserves drawing proportions.
 
 **No autosave or undo.** Clearing, loading, or closing discards unsaved work without confirmation.
 

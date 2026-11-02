@@ -13,16 +13,17 @@ struct BoardAlert: Identifiable {
 final class BoardStore: ObservableObject {
     @Published private(set) var session = BoardSession()
     @Published private(set) var isBusy = false
+    @Published private(set) var isCommandHeld = false
     @Published var presentedError: BoardAlert?
 
     var document: BoardDocument { session.document }
-    var mode: BoardMode { session.mode }
     var selectedColor: PencilColor { session.selectedColor }
-    var canModify: Bool { mode == .edit && !isBusy }
+    var canModify: Bool { !isBusy && presentedError == nil }
+    var isPainting: Bool { isCommandHeld && canModify }
 
-    func setMode(_ mode: BoardMode) {
-        guard !isBusy else { return }
-        session.mode = mode
+    func setCommandHeld(_ held: Bool) {
+        guard isCommandHeld != held else { return }
+        isCommandHeld = held
     }
 
     func selectColor(_ color: PencilColor) {

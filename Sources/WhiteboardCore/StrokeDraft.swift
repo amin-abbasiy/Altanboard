@@ -1,6 +1,6 @@
 import Foundation
 
-/// A draft is created only by a trackpad press, never by pointer movement.
+/// A draft records one continuous Command-held gesture on the canvas.
 public struct StrokeDraft: Sendable {
     public private(set) var stroke: Stroke
 

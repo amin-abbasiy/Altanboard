@@ -9,6 +9,7 @@ struct BoardCanvas: NSViewRepresentable {
     func makeNSView(context: Context) -> DrawingCanvasView {
         let view = DrawingCanvasView(frame: .zero)
         view.onCommit = { [weak store] stroke in store?.commit(stroke) }
+        view.onCommandHeldChanged = { [weak store] held in store?.setCommandHeld(held) }
         return view
     }
 
@@ -19,17 +20,27 @@ struct BoardCanvas: NSViewRepresentable {
             drawingEnabled: store.canModify
         )
     }
+
+    static func dismantleNSView(_ nsView: DrawingCanvasView, coordinator: ()) {
+        nsView.stopEventHandling()
+    }
 }
 
 @MainActor
 final class DrawingCanvasView: NSView {
     var onCommit: ((Stroke) -> Void)?
+    var onCommandHeldChanged: ((Bool) -> Void)?
 
     private var document = BoardDocument()
     private var selectedColor = PencilColor.black
     private var drawingEnabled = true
+    private var isCommandHeld = false
     private var draft: StrokeDraft?
     private var renderedStrokes: [RenderedStroke] = []
+    private var pointerTrackingArea: NSTrackingArea?
+    private var modifierMonitor: Any?
+
+    private var isPainting: Bool { drawingEnabled && isCommandHeld }
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
@@ -52,49 +63,167 @@ final class DrawingCanvasView: NSView {
             draft = nil
         }
         self.selectedColor = selectedColor
-        if self.drawingEnabled != drawingEnabled {
-            self.drawingEnabled = drawingEnabled
-            window?.invalidateCursorRects(for: self)
-        }
+        self.drawingEnabled = drawingEnabled
         if !drawingEnabled { draft = nil }
-        setAccessibilityValue("\(drawingEnabled ? "Edit" : "View") mode, \(document.strokes.count) strokes")
+        refreshInputAppearance()
         needsDisplay = true
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: drawingEnabled ? .crosshair : .arrow)
+        addCursorRect(bounds, cursor: isPainting ? .crosshair : .arrow)
     }
 
-    // Only press/drag/release events draw. Hovering the trackpad never adds ink.
+    override func updateTrackingAreas() {
+        if let pointerTrackingArea { removeTrackingArea(pointerTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow,
+                      .inVisibleRect, .enabledDuringMouseDrag],
+            owner: self, userInfo: nil
+        )
+        addTrackingArea(area)
+        pointerTrackingArea = area
+        super.updateTrackingAreas()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        handlePointerEvent(event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        handlePointerEvent(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        handleModifierFlags(event.modifierFlags, at: event.locationInWindow)
+        if isPainting, let point = canvasPoint(at: event.locationInWindow, clamped: true) {
+            draft?.append(point, isFinal: true)
+        }
+        finishStroke()
+    }
+
+    // Clicking is never required, and never draws unless Command is held.
     override func mouseDown(with event: NSEvent) {
-        guard drawingEnabled, let point = canvasPoint(for: event, clamped: false) else { return }
         window?.makeFirstResponder(self)
-        draft = StrokeDraft(start: point, color: selectedColor)
-        needsDisplay = true
+        handlePointerEvent(event)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard drawingEnabled, draft != nil,
-              let point = canvasPoint(for: event, clamped: true) else { return }
-        draft?.append(point)
-        needsDisplay = true
+        handlePointerEvent(event)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard drawingEnabled, var completed = draft else { return }
-        if let point = canvasPoint(for: event, clamped: true) {
-            completed.append(point, isFinal: true)
+        // Lifting a physical click must not end a Command-held stroke.
+        handlePointerEvent(event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        // Keyboard events do not provide a reliable pointer position.
+        guard let window else { return }
+        handleModifierFlags(event.modifierFlags, at: window.mouseLocationOutsideOfEventStream)
+    }
+
+    /// Shared by modifier events and pointer events, which also recover missed key changes.
+    func handleModifierFlags(_ flags: NSEvent.ModifierFlags, at locationInWindow: NSPoint) {
+        let held = flags.contains(.command)
+        guard held != isCommandHeld else { return }
+        isCommandHeld = held
+        if isPainting, let point = canvasPoint(at: locationInWindow, clamped: false) {
+            draft = StrokeDraft(start: point, color: selectedColor)
+            needsDisplay = true
+        } else if !held {
+            // Do not append the release location: the cursor may have left the board.
+            finishStroke()
         }
+        refreshInputAppearance()
+        onCommandHeldChanged?(held)
+    }
+
+    private func handlePointerEvent(_ event: NSEvent) {
+        handleModifierFlags(event.modifierFlags, at: event.locationInWindow)
+        guard isPainting else { return }
+        guard let point = canvasPoint(at: event.locationInWindow, clamped: false) else {
+            if let edge = canvasPoint(at: event.locationInWindow, clamped: true) {
+                draft?.append(edge, isFinal: true)
+            }
+            finishStroke()
+            return
+        }
+        if draft == nil {
+            draft = StrokeDraft(start: point, color: selectedColor)
+        } else {
+            draft?.append(point)
+        }
+        needsDisplay = true
+    }
+
+    private func finishStroke() {
+        guard let completed = draft else { return }
         draft = nil
         onCommit?(completed.stroke)
         needsDisplay = true
     }
 
+    private func refreshInputAppearance() {
+        window?.invalidateCursorRects(for: self)
+        setAccessibilityValue("\(isPainting ? "Paint" : "Cursor") mode, \(document.strokes.count) strokes")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        window.acceptsMouseMovedEvents = true
+        guard modifierMonitor == nil else { return }
+
+        // A local monitor works even after a toolbar button takes keyboard focus.
+        // Return the original event so normal macOS Command shortcuts still work.
+        modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, let window = self.window,
+                      window.isKeyWindow, event.window == nil || event.window === window,
+                      window.attachedSheet == nil else { return }
+                self.flagsChanged(with: event)
+            }
+            return event
+        }
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(inputDidLoseFocus(_:)),
+            name: NSWindow.didResignKeyNotification, object: window
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(inputDidLoseFocus(_:)),
+            name: NSApplication.didResignActiveNotification, object: NSApp
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification, object: window
+        )
+    }
+
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow == nil { draft = nil }
+        if newWindow !== window { stopEventHandling() }
         super.viewWillMove(toWindow: newWindow)
+    }
+
+    @objc private func inputDidLoseFocus(_ notification: Notification) {
+        handleModifierFlags([], at: .zero)
+    }
+
+    @objc private func windowWillClose(_ notification: Notification) {
+        stopEventHandling()
+    }
+
+    func stopEventHandling() {
+        handleModifierFlags([], at: .zero)
+        if let modifierMonitor {
+            NSEvent.removeMonitor(modifierMonitor)
+            self.modifierMonitor = nil
+        }
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
+        NotificationCenter.default.removeObserver(self, name: NSApplication.didResignActiveNotification, object: NSApp)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.willCloseNotification, object: window)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -131,8 +260,8 @@ final class DrawingCanvasView: NSView {
         )
     }
 
-    private func canvasPoint(for event: NSEvent, clamped: Bool) -> BoardPoint? {
-        let location = convert(event.locationInWindow, from: nil)
+    private func canvasPoint(at locationInWindow: NSPoint, clamped: Bool) -> BoardPoint? {
+        let location = convert(locationInWindow, from: nil)
         return viewport?.canvasPoint(
             fromViewPoint: BoardPoint(x: Double(location.x), y: Double(location.y)),
             clamped: clamped
@@ -143,7 +272,8 @@ final class DrawingCanvasView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
         setAccessibilityLabel("Whiteboard")
-        setAccessibilityHelp("In Edit mode, press and drag on the trackpad to draw. View mode is read-only.")
+        setAccessibilityHelp("Hold Command and move the pointer to draw without clicking. Release Command for Cursor mode.")
+        refreshInputAppearance()
     }
 }
 
